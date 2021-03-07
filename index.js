@@ -1,10 +1,42 @@
 const crypto = require('crypto');
 
+class Wallet {
+    constructor() {
+        const keypair = crypto.generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        });
+        this.privateKey = keypair.privateKey;
+        this.publicKey = keypair.publicKey;
+    }
+    sendMoney(blockchain, amount, receiverPublicKey) {
+        const transaction = new Transaction(this.publicKey, receiverPublicKey, amount)
+        const signature = transaction.signTransaction(this.privateKey)
+        blockchain.addTransaction(transaction, signature)
+    }
+}
+
 class Transaction {
-    constructor(fromAddress, toAddress, amount) {
-        this.fromAddress = fromAddress
-        this.toAddress = toAddress
+    constructor(senderPublicKey, receiverPublicKey, amount) {
+        this.senderPublicKey = senderPublicKey
+        this.receiverPublicKey = receiverPublicKey
         this.amount = amount
+        this.timestamp = Date.now()
+    }
+    toString() {
+        return JSON.stringify(this)
+    }
+    signTransaction(senderPrivateKey) {
+        const hashedTransaction = crypto.createSign("sha256");
+        hashedTransaction.update(this.toString()).end();
+        return hashedTransaction.sign(senderPrivateKey);
+    }
+    verifySignature(signature) {
+        if (this.senderPublicKey === null) return true
+        const verify = crypto.createVerify("sha256");
+        verify.update(this.toString());
+        return verify.verify(this.senderPublicKey, signature);
     }
 }
 
@@ -55,7 +87,9 @@ class BlockChain {
         this.pendingTransactions = [new Transaction(null, rewardAddress, this.miningReward)]
     }
 
-    createTransaction(transaction) {
+    addTransaction(transaction, signature) {
+        const isValid = transaction.verifySignature(signature)
+        if (!isValid) throw new Error('Invalid Signature')
         this.pendingTransactions.push(transaction)
     }
 
@@ -79,10 +113,10 @@ class BlockChain {
         let total = 0
         for (const block of this.chain) {
             for (const transaction of block.transactions) {
-                if (transaction.fromAddress == address) {
+                if (transaction.senderPublicKey == address) {
                     total -= transaction.amount
                 }
-                if (transaction.toAddress == address) {
+                if (transaction.receiverPublicKey == address) {
                     total += transaction.amount
                 }
             }
@@ -93,18 +127,14 @@ class BlockChain {
 
 
 let myCoin = new BlockChain()
+const wallet1 = new Wallet()
+const wallet2 = new Wallet()
 
-myCoin.createTransaction(new Transaction('addr1', 'addr2', 20))
-myCoin.createTransaction(new Transaction('addr2', 'addr1', 20))
-myCoin.createTransaction(new Transaction('addr3', 'addr1', 100))
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
-myCoin.minePendingTransactions('minerAddr')
+wallet1.sendMoney(myCoin, 10, wallet2.publicKey)
+wallet1.sendMoney(myCoin, 20, wallet2.publicKey)
+wallet1.sendMoney(myCoin, 30, wallet2.publicKey)
 
+myCoin.minePendingTransactions(wallet1.publicKey)
 
-console.log(myCoin.chain)
-console.log(` Miners Balance ${myCoin.getBalance('minerAddr')}`)
+console.log('lets see some transactions')
+console.log(myCoin.chain[1].transactions[0])
